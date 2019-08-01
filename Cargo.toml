@@ -1,0 +1,26 @@
+[package]
+name = "binrun"
+version = "0.1.0"
+authors = ["Denis Kolodin <deniskolodin@gmail.com>"]
+edition = "2018"
+description = "BinRun client app"
+
+[dependencies]
+config = "0.9.3"
+env_logger = "0.6.2"
+failure = "0.1.5"
+log = "0.4.8"
+runtime = "0.3.0-alpha.6"
+runtime-tokio = "0.3.0-alpha.5"
+serde = { version = "1.0.98", features = ["derive"] }
+tokio-process = "0.2.4"
+tokio-signal = "0.2.7"
+
+[dependencies.futures-legacy]
+package = "futures"
+version = "0.1.28"
+
+[dependencies.futures]
+package = "futures-preview"
+version = "0.3.0-alpha.17"
+features = ["async-await", "nightly", "compat"]
