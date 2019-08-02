@@ -2,18 +2,16 @@ use config::{ConfigError, Config, File, Environment};
 use serde::Deserialize;
 use std::collections::HashMap;
 
-
-#[derive(Debug, Deserialize, PartialEq, Eq, Hash)]
-pub struct Name(String);
+pub type Name = String;
 
 #[derive(Debug, Deserialize)]
 pub struct BinSettings {
-    path: String,
+    pub path: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    bin: HashMap<Name, BinSettings>,
+    pub bins: HashMap<Name, BinSettings>,
 }
 
 impl Settings {
