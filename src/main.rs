@@ -7,8 +7,8 @@ use failure::Error;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
 use futures::StreamExt;
 use futures_legacy::prelude::*;
-use std::env;
 use std::collections::HashMap;
+use std::env;
 use std::io::BufReader;
 use std::process::{Command, Stdio};
 use tokio_process::{Child, ChildStdout, CommandExt};
@@ -22,10 +22,9 @@ async fn main() -> Result<(), Error> {
         runtime::spawn(async move {
             log::info!("Starting '{}': {}", name, bin.path);
             let mut cmd = Command::new(bin.path);
-            let mut filtered_env : HashMap<String, String> =
-                env::vars().filter(|&(ref k, _)|
-                                   k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH"
-                                  ).collect();
+            let mut filtered_env: HashMap<String, String> = env::vars()
+                .filter(|&(ref k, _)| k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH")
+                .collect();
             let env_iter = bin.env.into_iter().map(|(k, v)| (k.to_uppercase(), v));
             filtered_env.extend(env_iter);
             cmd.env_clear();
@@ -44,7 +43,11 @@ async fn main() -> Result<(), Error> {
                                     println!("{} | {}", name.green(), line);
                                 }
                                 Err(err) => {
-                                    log::warn!("Can't read line from stderr of '{}': {}", name, err);
+                                    log::warn!(
+                                        "Can't read line from stderr of '{}': {}",
+                                        name,
+                                        err
+                                    );
                                 }
                             }
                         }
