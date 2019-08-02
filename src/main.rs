@@ -7,6 +7,8 @@ use failure::Error;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
 use futures::StreamExt;
 use futures_legacy::prelude::*;
+use std::env;
+use std::collections::HashMap;
 use std::io::BufReader;
 use std::process::{Command, Stdio};
 use tokio_process::{Child, ChildStdout, CommandExt};
@@ -20,6 +22,15 @@ async fn main() -> Result<(), Error> {
         runtime::spawn(async move {
             log::info!("Starting '{}': {}", name, bin.path);
             let mut cmd = Command::new(bin.path);
+            let mut filtered_env : HashMap<String, String> =
+                env::vars().filter(|&(ref k, _)|
+                                   k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH"
+                                  ).collect();
+            let env_iter = bin.env.into_iter().map(|(k, v)| (k.to_uppercase(), v));
+            filtered_env.extend(env_iter);
+            cmd.env_clear();
+            log::trace!("Set env for '{}': {:?}", name, filtered_env);
+            cmd.envs(&filtered_env);
             cmd.stderr(Stdio::piped());
             match cmd.spawn_async() {
                 Ok(mut child) => {

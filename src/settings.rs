@@ -7,6 +7,7 @@ pub type Name = String;
 #[derive(Debug, Deserialize)]
 pub struct BinSettings {
     pub path: String,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
