@@ -9,6 +9,7 @@ use futures::compat::{Future01CompatExt, Stream01CompatExt};
 use futures::{select, StreamExt};
 use futures_legacy::prelude::*;
 use runtime::task::JoinHandle;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
 use std::io::BufReader;
@@ -60,16 +61,19 @@ async fn run_command(name: Name, bin: BinSettings) -> Result<(), Error> {
 /// to a process. But maybe use signals to end them?
 struct RunContext {
     handle: JoinHandle<Result<(), Error>>,
+    bin: BinSettings,
 }
 
 impl RunContext {
     fn start(name: Name, bin: BinSettings) -> Self {
-        let handle = runtime::spawn(run_command(name, bin));
-        Self { handle }
+        let handle = runtime::spawn(run_command(name, bin.clone()));
+        Self { handle, bin }
     }
 
-    async fn end(self) -> Result<(), Error> {
-        self.handle.await
+    async fn end(&mut self) -> Result<(), Error> {
+        // TODO: Send termination signal to a process
+        (&mut self.handle).await;
+        Ok(())
     }
 }
 
@@ -84,19 +88,33 @@ impl Supervisor {
         }
     }
 
-    fn apply_config(&mut self, config: Settings) {
+    async fn apply_config(&mut self, config: Settings) {
         for (name, bin) in config.bins {
-            if !self.processes.contains_key(&name) {
-                let context = RunContext::start(name.clone(), bin);
-                self.processes.insert(name, context);
-            } else {
-                log::debug!("Process '{}' already started", name);
+            let entry = self.processes.entry(name.clone());
+            match entry {
+                Entry::Occupied(mut entry) => {
+                    let context = entry.get_mut();
+                    if context.bin != bin {
+                        log::debug!("Restarting process '{}'...", name);
+                        context.end().await;
+                    // TODO:
+                    // 1. Kill `context`
+                    // 2. Spawn new `RunContext`
+                    // 3. Replace new with old
+                    } else {
+                        log::debug!("Process '{}' already started", name);
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    let context = RunContext::start(name.clone(), bin);
+                    entry.insert(context);
+                }
             }
         }
     }
 
     async fn terminate(&mut self) {
-        for (name, proc) in self.processes.drain() {
+        for (name, mut proc) in self.processes.drain() {
             log::info!("Finishing the process '{}'", name);
             // TODO: Add timeout and kill force quit
             proc.end().await;
@@ -112,7 +130,7 @@ async fn main() -> Result<(), Error> {
 
     let mut supervisor = Supervisor::new();
     let config = settings::Settings::parse()?;
-    supervisor.apply_config(config);
+    supervisor.apply_config(config).await;
     loop {
         select! {
             _sigint = ctrl_c.next() => {
@@ -123,7 +141,7 @@ async fn main() -> Result<(), Error> {
                 let config = settings::Settings::parse();
                 match config {
                     Ok(config) => {
-                        supervisor.apply_config(config);
+                        supervisor.apply_config(config).await;
                     }
                     Err(err) => {
                         log::error!("Can't load or parse config: {}", err);

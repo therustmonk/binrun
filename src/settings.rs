@@ -4,13 +4,13 @@ use std::collections::HashMap;
 
 pub type Name = String;
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BinSettings {
     pub path: String,
     pub env: HashMap<String, String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Settings {
     pub bins: HashMap<Name, BinSettings>,
 }
