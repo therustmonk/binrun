@@ -6,7 +6,7 @@ use crate::settings::{BinSettings, Name};
 use colored::*;
 use failure::Error;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
-use futures::StreamExt;
+use futures::{select, StreamExt};
 use futures_legacy::prelude::*;
 use runtime::task::JoinHandle;
 use std::collections::HashMap;
@@ -14,6 +14,7 @@ use std::env;
 use std::io::BufReader;
 use std::process::{Command, Stdio};
 use tokio_process::{Child, ChildStdout, CommandExt};
+use tokio_signal::unix::{Signal, SIGHUP, SIGINT};
 
 async fn run_command(name: Name, bin: BinSettings) -> Result<(), Error> {
     log::info!("Starting '{}': {}", name, bin.path);
@@ -76,13 +77,23 @@ impl RunContext {
 async fn main() -> Result<(), Error> {
     env_logger::try_init()?;
     let settings = settings::Settings::parse()?;
-    let mut ctrl_c = tokio_signal::ctrl_c().flatten_stream().compat();
+    let mut ctrl_c = Signal::new(SIGINT).flatten_stream().compat().fuse();
+    let mut hups = Signal::new(SIGHUP).flatten_stream().compat().fuse();
     let mut processes_map = HashMap::new();
     for (name, bin) in settings.bins {
         let context = RunContext::start(name.clone(), bin);
         processes_map.insert(name, context);
     }
-    ctrl_c.next().await;
+    loop {
+        select! {
+            _sigint = ctrl_c.next() => {
+                break;
+            }
+            _sighup = hups.next() => {
+                log::info!("Reloading configuration...");
+            }
+        }
+    }
     log::debug!("Terminating...");
     for (name, proc) in processes_map {
         log::info!("Finishing the process '{}'", name);
