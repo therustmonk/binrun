@@ -1,9 +1,11 @@
 #![feature(async_await)]
 
+mod colorizer;
 mod settings;
 
 use crate::settings::{BinSettings, Name, Settings};
 use colored::*;
+use colorizer::Colorizer;
 use failure::{format_err, Error};
 use futures::channel::oneshot;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
@@ -23,6 +25,7 @@ use tokio_process::{Child, ChildStdout, CommandExt};
 use tokio_signal::unix::{Signal, SIGHUP, SIGINT};
 
 async fn run_command(
+    color: Color,
     name: Name,
     bin: BinSettings,
     killer: oneshot::Receiver<()>,
@@ -44,13 +47,12 @@ async fn run_command(
             if let Some(stderr) = child.stderr().take() {
                 let mut lines = tokio_io::io::lines(BufReader::new(stderr)).compat().fuse();
                 let mut killer = killer.fuse();
-                //runtime::spawn(child.compat());
                 loop {
                     select! {
                         line = lines.next() => {
                             match line {
                                 Some(Ok(line)) => {
-                                    println!("{} | {}", name.green(), line);
+                                    println!("{} | {}", name.color(color), line);
                                 }
                                 Some(Err(err)) => {
                                     log::warn!("Can't read line from stderr of '{}': {}", name, err);
@@ -117,17 +119,19 @@ async fn run_command(
 /// to a process. But maybe use signals to end them?
 struct RunContext {
     handle: JoinHandle<Result<ExitStatus, Error>>,
+    color: Color,
     name: Name,
     bin: BinSettings,
     killer: Option<oneshot::Sender<()>>,
 }
 
 impl RunContext {
-    fn start(name: Name, bin: BinSettings) -> Self {
+    fn start(color: Color, name: Name, bin: BinSettings) -> Self {
         let (tx, rx) = oneshot::channel();
-        let handle = runtime::spawn(run_command(name.clone(), bin.clone(), rx));
+        let handle = runtime::spawn(run_command(color.clone(), name.clone(), bin.clone(), rx));
         Self {
             handle,
+            color,
             name,
             bin,
             killer: Some(tx),
@@ -148,6 +152,7 @@ impl RunContext {
 }
 
 struct Supervisor {
+    colorizer: Colorizer,
     processes: HashMap<Name, RunContext>,
 }
 
@@ -155,6 +160,7 @@ impl Supervisor {
     fn new() -> Self {
         Self {
             processes: HashMap::new(),
+            colorizer: Colorizer::new(),
         }
     }
 
@@ -167,14 +173,16 @@ impl Supervisor {
                     if context.bin != bin {
                         log::debug!("Restarting process '{}'...", name);
                         context.end().await;
-                        let new_context = RunContext::start(name.clone(), bin);
+                        let new_context =
+                            RunContext::start(context.color.clone(), name.clone(), bin);
                         *context = new_context;
                     } else {
                         log::debug!("Process '{}' already started", name);
                     }
                 }
                 Entry::Vacant(entry) => {
-                    let context = RunContext::start(name.clone(), bin);
+                    let color = self.colorizer.next();
+                    let context = RunContext::start(color, name.clone(), bin);
                     entry.insert(context);
                 }
             }
