@@ -2,7 +2,7 @@
 
 mod settings;
 
-use crate::settings::{BinSettings, Name};
+use crate::settings::{BinSettings, Name, Settings};
 use colored::*;
 use failure::Error;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
@@ -73,17 +73,46 @@ impl RunContext {
     }
 }
 
+struct Supervisor {
+    processes: HashMap<Name, RunContext>,
+}
+
+impl Supervisor {
+    fn new() -> Self {
+        Self {
+            processes: HashMap::new(),
+        }
+    }
+
+    fn apply_config(&mut self, config: Settings) {
+        for (name, bin) in config.bins {
+            if !self.processes.contains_key(&name) {
+                let context = RunContext::start(name.clone(), bin);
+                self.processes.insert(name, context);
+            } else {
+                log::debug!("Process '{}' already started", name);
+            }
+        }
+    }
+
+    async fn terminate(&mut self) {
+        for (name, proc) in self.processes.drain() {
+            log::info!("Finishing the process '{}'", name);
+            // TODO: Add timeout and kill force quit
+            proc.end().await;
+        }
+    }
+}
+
 #[runtime::main(runtime_tokio::Tokio)]
 async fn main() -> Result<(), Error> {
     env_logger::try_init()?;
-    let settings = settings::Settings::parse()?;
     let mut ctrl_c = Signal::new(SIGINT).flatten_stream().compat().fuse();
     let mut hups = Signal::new(SIGHUP).flatten_stream().compat().fuse();
-    let mut processes_map = HashMap::new();
-    for (name, bin) in settings.bins {
-        let context = RunContext::start(name.clone(), bin);
-        processes_map.insert(name, context);
-    }
+
+    let mut supervisor = Supervisor::new();
+    let config = settings::Settings::parse()?;
+    supervisor.apply_config(config);
     loop {
         select! {
             _sigint = ctrl_c.next() => {
@@ -91,13 +120,19 @@ async fn main() -> Result<(), Error> {
             }
             _sighup = hups.next() => {
                 log::info!("Reloading configuration...");
+                let config = settings::Settings::parse();
+                match config {
+                    Ok(config) => {
+                        supervisor.apply_config(config);
+                    }
+                    Err(err) => {
+                        log::error!("Can't load or parse config: {}", err);
+                    }
+                }
             }
         }
     }
     log::debug!("Terminating...");
-    for (name, proc) in processes_map {
-        log::info!("Finishing the process '{}'", name);
-        proc.end();
-    }
+    supervisor.terminate().await;
     Ok(())
 }
