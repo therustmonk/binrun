@@ -8,6 +8,7 @@ use failure::Error;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
 use futures::StreamExt;
 use futures_legacy::prelude::*;
+use runtime::task::JoinHandle;
 use std::collections::HashMap;
 use std::env;
 use std::io::BufReader;
@@ -53,14 +54,39 @@ async fn run_command(name: Name, bin: BinSettings) -> Result<(), Error> {
     Ok(())
 }
 
+/// This struct holds `JoinHandle` of a spawned routine that
+/// reprints output and contains a channel to send management commands
+/// to a process. But maybe use signals to end them?
+struct RunContext {
+    handle: JoinHandle<Result<(), Error>>,
+}
+
+impl RunContext {
+    fn start(name: Name, bin: BinSettings) -> Self {
+        let handle = runtime::spawn(run_command(name, bin));
+        Self { handle }
+    }
+
+    async fn end(self) -> Result<(), Error> {
+        self.handle.await
+    }
+}
+
 #[runtime::main(runtime_tokio::Tokio)]
 async fn main() -> Result<(), Error> {
     env_logger::try_init()?;
     let settings = settings::Settings::parse()?;
     let mut ctrl_c = tokio_signal::ctrl_c().flatten_stream().compat();
+    let mut processes_map = HashMap::new();
     for (name, bin) in settings.bins {
-        runtime::spawn(run_command(name, bin));
+        let context = RunContext::start(name.clone(), bin);
+        processes_map.insert(name, context);
     }
     ctrl_c.next().await;
+    log::debug!("Terminating...");
+    for (name, proc) in processes_map {
+        log::info!("Finishing the process '{}'", name);
+        proc.end();
+    }
     Ok(())
 }
