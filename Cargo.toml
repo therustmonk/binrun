@@ -17,6 +17,7 @@ tokio-process = "0.2.4"
 tokio-signal = "0.2.7"
 tokio-io = "0.1.12"
 colored = "1.8.0"
+nix = "0.14.1"
 
 [dependencies.futures-legacy]
 package = "futures"

@@ -4,17 +4,21 @@ mod settings;
 
 use crate::settings::{BinSettings, Name, Settings};
 use colored::*;
-use failure::Error;
+use failure::{format_err, Error};
 use futures::channel::oneshot;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
-use futures::{select, FutureExt, StreamExt};
+use futures::{select, FutureExt, StreamExt, TryFutureExt};
 use futures_legacy::prelude::*;
+use nix::sys::signal;
+use nix::unistd::Pid;
 use runtime::task::JoinHandle;
+use runtime::time::FutureExt as _;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
 use std::io::BufReader;
 use std::process::{Command, ExitStatus, Stdio};
+use std::time::Duration;
 use tokio_process::{Child, ChildStdout, CommandExt};
 use tokio_signal::unix::{Signal, SIGHUP, SIGINT};
 
@@ -52,20 +56,54 @@ async fn run_command(
                                     log::warn!("Can't read line from stderr of '{}': {}", name, err);
                                 }
                                 None => {
+                                    // If stderr closed by a process it doesn't mean the process terminated.
                                     break;
                                 }
                             }
                         }
                         kill = killer => {
-                            // TODO: Send signals instead
-                            child.kill();
+                            break;
                         }
                     }
                 }
             } else {
                 log::warn!("Can't get a stderr stream of '{}'", name);
             }
-            child.from_err().compat().await
+            let pid = Pid::from_raw(child.id() as i32);
+            let end_strategy = vec![(signal::Signal::SIGINT, 5), (signal::Signal::SIGKILL, 15)];
+            let mut end_fut = child.from_err().compat();
+            for (sig, timeout) in end_strategy {
+                match signal::kill(pid, sig) {
+                    Ok(_) => {
+                        // Wait for a process termination
+                        let duration = Duration::from_secs(timeout);
+                        let term: Result<Result<ExitStatus, Error>, std::io::Error> =
+                            (&mut end_fut).timeout(duration).await;
+                        if let Ok(exit_status) = term {
+                            match exit_status {
+                                Ok(exit_status) => {
+                                    // exit_status.code() returns `None` for Unix. Use Debug print instead.
+                                    log::info!(
+                                        "Process '{}' terminated with code: {:?}",
+                                        name,
+                                        exit_status
+                                    );
+                                    return Ok(exit_status);
+                                }
+                                Err(err) => {
+                                    log::error!("Can't get status code of '{}': {}", name, err);
+                                }
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        // No wait and send the next signal immediately.
+                        log::error!("Can't send kill signal {} to {}: {}", sig, pid, err);
+                    }
+                }
+            }
+            log::error!("Can't terminate a process with pid of '{}': {}", name, pid);
+            Err(format_err!("Can't kill by pid: {}", pid))
         }
         Err(err) => {
             log::error!("Can't start '{}': {}", name, err);
