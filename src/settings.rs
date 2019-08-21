@@ -7,6 +7,7 @@ pub type Name = String;
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BinSettings {
     pub path: String,
+    pub workdir: Option<String>,
     pub env: HashMap<String, String>,
 }
 

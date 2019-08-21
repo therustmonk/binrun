@@ -9,6 +9,7 @@ use colorizer::Colorizer;
 use failure::{format_err, Error};
 use futures::channel::oneshot;
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
+use futures::stream::select;
 use futures::{select, FutureExt, StreamExt, TryFutureExt};
 use futures_legacy::prelude::*;
 use nix::sys::signal;
@@ -40,36 +41,48 @@ async fn run_command(
     cmd.env_clear();
     log::trace!("Set env for '{}': {:?}", name, filtered_env);
     cmd.envs(&filtered_env);
+    if let Some(dir) = bin.workdir {
+        cmd.current_dir(dir);
+    }
     cmd.stderr(Stdio::piped());
+    cmd.stdout(Stdio::piped());
     match cmd.spawn_async() {
         Ok(mut child) => {
             log::debug!("Started: '{}'", name);
-            if let Some(stderr) = child.stderr().take() {
-                let mut lines = tokio_io::io::lines(BufReader::new(stderr)).compat().fuse();
-                let mut killer = killer.fuse();
-                loop {
-                    select! {
-                        line = lines.next() => {
-                            match line {
-                                Some(Ok(line)) => {
-                                    println!("{} | {}", name.color(color), line);
-                                }
-                                Some(Err(err)) => {
-                                    log::warn!("Can't read line from stderr of '{}': {}", name, err);
-                                }
-                                None => {
-                                    // If stderr closed by a process it doesn't mean the process terminated.
-                                    break;
+            let child_stderr = child.stderr().take();
+            let child_stdout = child.stdout().take();
+            match (child_stdout, child_stderr) {
+                (Some(stdout), Some(stderr)) => {
+                    let err_lines = tokio_io::io::lines(BufReader::new(stderr)).compat();
+                    let out_lines = tokio_io::io::lines(BufReader::new(stdout)).compat();
+                    let mut lines = select(out_lines, err_lines).fuse();
+                    let mut killer = killer.fuse();
+                    loop {
+                        select! {
+                            line = lines.next() => {
+                                match line {
+                                    Some(Ok(line)) => {
+                                        let prefix = format!("{:<15}|", name);
+                                        println!("{} {}", prefix.color(color), line);
+                                    }
+                                    Some(Err(err)) => {
+                                        log::warn!("Can't read line from stderr of '{}': {}", name, err);
+                                    }
+                                    None => {
+                                        // If stderr closed by a process it doesn't mean the process terminated.
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        kill = killer => {
-                            break;
+                            kill = killer => {
+                                break;
+                            }
                         }
                     }
                 }
-            } else {
-                log::warn!("Can't get a stderr stream of '{}'", name);
+                _ => {
+                    log::warn!("Can't get a stdout/stderr stream of '{}'", name);
+                }
             }
             let pid = Pid::from_raw(child.id() as i32);
             let end_strategy = vec![(signal::Signal::SIGINT, 5), (signal::Signal::SIGKILL, 15)];
