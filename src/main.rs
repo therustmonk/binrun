@@ -15,7 +15,7 @@ use futures_legacy::prelude::*;
 use nix::sys::signal;
 use nix::unistd::Pid;
 use runtime::task::JoinHandle;
-use runtime::time::FutureExt as _;
+use runtime::time::{Delay, FutureExt as _};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
@@ -27,11 +27,21 @@ use tokio_signal::unix::{Signal, SIGHUP, SIGINT};
 
 async fn run_command(
     color: Color,
-    name: Name,
+    pale_name: Name,
     bin: BinSettings,
     killer: oneshot::Receiver<()>,
 ) -> Result<ExitStatus, Error> {
+    // TODO: Consider to give colored name here!
+    let name = pale_name.color(color);
     log::info!("Starting '{}': {}", name, bin.path);
+    if let Some(mut secs) = bin.delay {
+        let one_sec = Duration::from_secs(1);
+        while secs > 0 {
+            log::info!("{} secs remain before starting: {}", secs, name);
+            Delay::new(one_sec).await;
+            secs -= 1;
+        }
+    }
     let mut cmd = Command::new(bin.path);
     let mut filtered_env: HashMap<String, String> = env::vars()
         .filter(|&(ref k, _)| k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH")
@@ -62,7 +72,7 @@ async fn run_command(
                             line = lines.next() => {
                                 match line {
                                     Some(Ok(line)) => {
-                                        let prefix = format!("{:<15}|", name);
+                                        let prefix = format!("{:<15}|", pale_name);
                                         println!("{} {}", prefix.color(color), line);
                                     }
                                     Some(Err(err)) => {

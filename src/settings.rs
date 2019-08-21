@@ -9,6 +9,7 @@ pub struct BinSettings {
     pub path: String,
     pub workdir: Option<String>,
     pub env: HashMap<String, String>,
+    pub delay: Option<u64>,
 }
 
 #[derive(Deserialize, Debug)]
