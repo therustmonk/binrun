@@ -58,6 +58,9 @@ async fn run_command(
         log::trace!("Set env for '{}': {:?}", name, filtered_env);
         cmd.envs(&filtered_env);
     }
+    if let Some(args) = bin.args {
+        cmd.args(args.split_whitespace());
+    }
     if let Some(dir) = bin.workdir {
         cmd.current_dir(dir);
     }

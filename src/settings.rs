@@ -9,6 +9,7 @@ pub struct BinSettings {
     pub active: Option<bool>,
     pub path: String,
     pub workdir: Option<String>,
+    pub args: Option<String>,
     pub env: Option<HashMap<String, String>>,
     pub delay: Option<u64>,
 }
