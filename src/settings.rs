@@ -8,7 +8,7 @@ pub type Name = String;
 pub struct BinSettings {
     pub path: String,
     pub workdir: Option<String>,
-    pub env: HashMap<String, String>,
+    pub env: Option<HashMap<String, String>>,
     pub delay: Option<u64>,
 }
 

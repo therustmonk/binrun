@@ -46,11 +46,13 @@ async fn run_command(
     let mut filtered_env: HashMap<String, String> = env::vars()
         .filter(|&(ref k, _)| k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH")
         .collect();
-    let env_iter = bin.env.into_iter().map(|(k, v)| (k.to_uppercase(), v));
-    filtered_env.extend(env_iter);
-    cmd.env_clear();
-    log::trace!("Set env for '{}': {:?}", name, filtered_env);
-    cmd.envs(&filtered_env);
+    if let Some(env) = bin.env {
+        let env_iter = env.into_iter().map(|(k, v)| (k.to_uppercase(), v));
+        filtered_env.extend(env_iter);
+        cmd.env_clear();
+        log::trace!("Set env for '{}': {:?}", name, filtered_env);
+        cmd.envs(&filtered_env);
+    }
     if let Some(dir) = bin.workdir {
         cmd.current_dir(dir);
     }
