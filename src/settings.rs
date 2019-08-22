@@ -6,6 +6,7 @@ pub type Name = String;
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BinSettings {
+    pub active: Option<bool>,
     pub path: String,
     pub workdir: Option<String>,
     pub env: Option<HashMap<String, String>>,

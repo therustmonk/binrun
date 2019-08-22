@@ -33,6 +33,11 @@ async fn run_command(
 ) -> Result<ExitStatus, Error> {
     // TODO: Consider to give colored name here!
     let name = pale_name.color(color);
+    let active = bin.active.unwrap_or(true);
+    if !active {
+        killer.await;
+        return Err(format_err!("{} not started", name));
+    }
     log::info!("Starting '{}': {}", name, bin.path);
     if let Some(mut secs) = bin.delay {
         let one_sec = Duration::from_secs(1);
