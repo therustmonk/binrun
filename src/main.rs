@@ -38,7 +38,7 @@ async fn run_command(
         killer.await;
         return Err(format_err!("{} not started", name));
     }
-    log::info!("Starting '{}': {}", name, bin.path);
+    log::info!("Starting '{}': {}", name, bin.command);
     if let Some(mut secs) = bin.delay {
         let one_sec = Duration::from_secs(1);
         while secs > 0 {
@@ -47,7 +47,7 @@ async fn run_command(
             secs -= 1;
         }
     }
-    let mut cmd = Command::new(bin.path);
+    let mut cmd = Command::new(bin.command);
     let mut filtered_env: HashMap<String, String> = env::vars()
         .filter(|&(ref k, _)| k == "TERM" || k == "TZ" || k == "LANG" || k == "PATH")
         .collect();
