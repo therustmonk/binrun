@@ -25,6 +25,16 @@ use std::time::Duration;
 use tokio_process::{Child, ChildStdout, CommandExt};
 use tokio_signal::unix::{Signal, SIGHUP, SIGINT};
 
+async fn wait_for(pale_name: Name, color: Color, mut secs: u64, reason: &str) {
+    let name = pale_name.color(color);
+    let one_sec = Duration::from_secs(1);
+    while secs > 0 {
+        log::info!("{} secs remain {}: {}", secs, reason, name);
+        Delay::new(one_sec).await;
+        secs -= 1;
+    }
+}
+
 async fn run_command(
     color: Color,
     pale_name: Name,
@@ -39,13 +49,8 @@ async fn run_command(
         return Err(format_err!("{} not started", name));
     }
     log::info!("Starting '{}': {}", name, bin.command);
-    if let Some(mut secs) = bin.delay {
-        let one_sec = Duration::from_secs(1);
-        while secs > 0 {
-            log::info!("{} secs remain before starting: {}", secs, name);
-            Delay::new(one_sec).await;
-            secs -= 1;
-        }
+    if let Some(secs) = bin.delay {
+        wait_for(pale_name.clone(), color.clone(), secs, "before starting").await;
     }
     let mut cmd = Command::new(bin.command);
     let mut filtered_env: HashMap<String, String> = env::vars()
@@ -198,7 +203,8 @@ impl Supervisor {
     }
 
     async fn apply_config(&mut self, config: Settings) {
-        for (name, bin) in config.bins {
+        for bin in config.bins {
+            let name = bin.name.clone();
             let entry = self.processes.entry(name.clone());
             match entry {
                 Entry::Occupied(mut entry) => {
@@ -214,9 +220,13 @@ impl Supervisor {
                     }
                 }
                 Entry::Vacant(entry) => {
+                    let wait = bin.wait.clone();
                     let color = self.colorizer.next();
-                    let context = RunContext::start(color, name.clone(), bin);
+                    let context = RunContext::start(color.clone(), name.clone(), bin);
                     entry.insert(context);
+                    if let Some(secs) = wait {
+                        wait_for(name, color, secs, "wait for").await;
+                    }
                 }
             }
         }
