@@ -105,7 +105,7 @@ async fn run_command(
                 }
             }
             let pid = Pid::from_raw(child.id() as i32);
-            let end_strategy = vec![(signal::Signal::SIGINT, 5), (signal::Signal::SIGKILL, 15)];
+            let end_strategy = vec![(signal::Signal::SIGINT, 15), (signal::Signal::SIGKILL, 5)];
             let mut end_fut = child.from_err().compat();
             for (sig, timeout) in end_strategy {
                 match signal::kill(pid, sig) {
